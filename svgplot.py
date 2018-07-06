@@ -1,4 +1,5 @@
 from xml.etree import ElementTree as el
+import re
 
 
 class PlotSVG:
@@ -19,8 +20,13 @@ class PlotSVG:
             factor = self._calc_factor(self.minval, self.maxval, val)
             color = self._interp_color(self.mincolor, self.maxcolor, factor)
             match = self.tree.find('''.//*[@id='{:s}']'''.format(id))
+            if match is None:
+                raise ValueError('id "{:s}" not found in svg.'.format(id))
+            if 'style' not in match.attrib:
+                match.attrib['style'] = ''
             style = match.attrib['style']
-            # slit styles, remove fill if present, input new fill and rejoin!
+
+            # split styles, remove fill if present, input new fill and rejoin!
             parts = style.split(';')
             parts = [p.split(':') for p in parts]
             parts = [x for x in parts if not x[0] == 'fill']
@@ -32,13 +38,18 @@ class PlotSVG:
     def save(self, file):
         self.tree.write(file)
 
-    def colorbar(self, nlabels=5,
-                 formatlabel=lambda x: '{:n}'.format(x)):
+    def colorbar(self,
+                 nlabels=5,
+                 formatlabel=lambda x: '{:.1f}'.format(x),
+                 height=0.75):
         root = self.tree.getroot()
-        vb = root.attrib['viewBox'].split(' ')
-        width, height = float(vb[2]), float(vb[3])
-        x = width
-        y = height/2 - 50
+        vb = root.attrib['viewBox']
+        im_width = root.attrib['width']
+        [posx, posy, width, height] = vb.split(' ')
+        root.attrib['width'] = self._new_width(im_width, 100)
+        x = float(width)
+        y = float(height)/2 - 50
+
         s = '<g id="legend" transform="translate({:n}, {:n})">'.format(x, y)
         s += '<defs>'
         s += '<linearGradient id="grad1" x1="0%" y1="0%" x2="0%" y2="100%">'
@@ -53,6 +64,7 @@ class PlotSVG:
         s += self._ticks(nlabels)
         s += self._labels(self.minval, self.maxval, nlabels, formatlabel)
         s += '</g>'
+
         legend = el.fromstring(s)
         root.append(legend)
 
@@ -96,3 +108,11 @@ class PlotSVG:
             v = formatlabel(v)
             s += '<text x="17" y="{:n}" fill="#000000">{:s}</text>'.format(y, v)
         return s
+
+    def _new_width(self, width, add):
+        match = re.match(r"([a-z]+)([0-9]+)", width, re.I)
+        if match:
+            val, unit = match.groups()
+            return str(int(float(val)) + add) + unit
+        else:
+            return str(int(float(width)) + add)
